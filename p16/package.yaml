@@ -24,7 +24,6 @@ dependencies:
 - containers >= 0.6.7
 - mtl
 - list-t
-- monad-loops
 
 ghc-options:
 - -Wall

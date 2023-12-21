@@ -9,8 +9,8 @@ import qualified Data.Map.Strict as M
 import qualified Data.List as List
 import qualified Control.Monad.State.Strict as S
 import qualified ListT as ListT
+import ListT (ListT)
 import Data.Maybe (maybeToList)
-import Control.Monad.Loops (iterateUntilM)
 
 mapWithIndex :: (Int -> a -> b) -> [a] -> [b]
 mapWithIndex = (flip List.zipWith) [0..]
@@ -45,32 +45,23 @@ nextDirs '\\' (LaserDir dr dc)  = [LaserDir dc dr]
 nextDirs '|'  d@(LaserDir _ dc) = if dc == 0 then [d] else [LaserDir 1 0, LaserDir (-1) 0]
 nextDirs '-'  d@(LaserDir dr _) = if dr == 0 then [d] else [LaserDir 0 1, LaserDir 0 (-1)]
 
--- Performs a single step of every active laser.
-step :: Chamber -> [LaserState] -> S.State ChamberState [LaserState]
-step chamber lasers = ListT.toReverseList $ do
-    LaserState{pos=currPos, dir=currDir} <- ListT.fromFoldable lasers
-    chamberState <- S.get
-    let visitedDirs = M.findWithDefault [] currPos chamberState
-
-    if List.elem currDir visitedDirs
-        then mempty -- Exits early
-        else return ()
-
-    tile <- ListT.fromFoldable $ maybeToList $ M.lookup currPos chamber
-
-    S.modify' $ M.insert currPos (currDir:visitedDirs)
-
-    nextDir <- ListT.fromFoldable $ nextDirs tile currDir
-
-    return $ LaserState {pos = stepLaserPos currPos nextDir, dir = nextDir}
-
--- Iterates `step` until all lasers have settled.
-settledLaserPositions :: Chamber -> LaserState -> ChamberState
-settledLaserPositions chamber laser = S.execState settledState M.empty
-  where settledState = iterateUntilM List.null (step chamber) [laser]
-
 energizedTileCount :: Chamber -> LaserState -> Int
-energizedTileCount = (M.size .) . settledLaserPositions
+energizedTileCount chamber laser = M.size $ S.execState (ListT.null $ reflect laser) M.empty
+    where
+        reflect :: LaserState -> ListT (S.State ChamberState) LaserState
+        reflect LaserState{pos=currPos, dir=currDir} = do
+            tile <- ListT.fromFoldable $ maybeToList $ M.lookup currPos chamber
+            chamberState <- S.get
+            let visitedDirs = M.findWithDefault [] currPos chamberState
+            if List.elem currDir visitedDirs
+                then mempty -- Exits early
+                else return ()
+
+            S.modify' $ M.insert currPos (currDir:visitedDirs)
+
+            nextDir <- ListT.fromFoldable $ nextDirs tile currDir
+
+            reflect $ LaserState {pos = stepLaserPos currPos nextDir, dir = nextDir}
 
 allInitialLasers :: Chamber -> [LaserState]
 allInitialLasers chamber = left ++ right ++ top ++ bottom
