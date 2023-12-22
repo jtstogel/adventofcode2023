@@ -11,6 +11,7 @@ import qualified Control.Monad.State.Strict as S
 import qualified ListT as ListT
 import ListT (ListT)
 import Data.Maybe (maybeToList)
+import Control.Monad (when)
 
 mapWithIndex :: (Int -> a -> b) -> [a] -> [b]
 mapWithIndex = (flip List.zipWith) [0..]
@@ -37,6 +38,12 @@ data LaserState = LaserState
 type Chamber = M.Map (Int, Int) Char
 type ChamberState = M.Map (Int, Int) [LaserDir]
 
+visited :: LaserState -> ChamberState -> Bool
+visited LaserState{pos=p, dir=d} = List.elem d . M.findWithDefault [] p
+
+markVisited :: LaserState -> ChamberState -> ChamberState
+markVisited LaserState{pos=p, dir=d} = M.insertWith (++) p [d]
+
 -- Provides the next directions for a laser given the tile it will hit.
 nextDirs :: Char -> LaserDir -> [LaserDir]
 nextDirs '.'  d                 = [d]
@@ -49,19 +56,16 @@ energizedTileCount :: Chamber -> LaserState -> Int
 energizedTileCount chamber laser = M.size $ S.execState (ListT.null $ reflect laser) M.empty
     where
         reflect :: LaserState -> ListT (S.State ChamberState) LaserState
-        reflect LaserState{pos=currPos, dir=currDir} = do
-            tile <- ListT.fromFoldable $ maybeToList $ M.lookup currPos chamber
+        reflect l@LaserState{pos=currPos, dir=currDir} = do
+            tile <- ListT.fromFoldable $ maybeToList $ M.lookup (pos l) chamber
+
             chamberState <- S.get
-            let visitedDirs = M.findWithDefault [] currPos chamberState
-            if List.elem currDir visitedDirs
-                then mempty -- Exits early
-                else return ()
+            when (visited l chamberState) mempty
+            S.modify' $ markVisited l
 
-            S.modify' $ M.insert currPos (currDir:visitedDirs)
-
-            nextDir <- ListT.fromFoldable $ nextDirs tile currDir
-
-            reflect $ LaserState {pos = stepLaserPos currPos nextDir, dir = nextDir}
+            nextDir <- ListT.fromFoldable $ nextDirs tile (dir l)
+            let nextPos = stepLaserPos (pos l) nextDir
+            reflect $ LaserState {pos = nextPos, dir = nextDir}
 
 allInitialLasers :: Chamber -> [LaserState]
 allInitialLasers chamber = left ++ right ++ top ++ bottom
